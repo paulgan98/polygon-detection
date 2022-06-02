@@ -40,17 +40,17 @@ class Point:
 class Paint:
     def __init__(self, root):
         self.canvas = Canvas(root, width=WIDTH, height=HEIGHT)
-        self.x, self.y = 0, 0
+        self.x, self.y = None, None
         self.draw = False
-
+        self.guideLine = None
         self.canvas.bind("<ButtonPress-1>", self.onButtonDown)
+        self.canvas.bind("<Motion>", self.onMouseMove)
 
         self.currLineNum = 0 # increment after every line drawn
         self.currPointNum = 0 # increment after every point of intersection is found
 
         # Stores all lines and the lines they intersect with
-        # {lineIndex : [(x0, y0), (x1, y1)], 
-        #  lineIndex : [(x2, y2), (x3, y3)]...}
+        # {lineIndex : [(x0, y0), (x1, y1)], ...}
         self.lines = {}
 
         # Store all line ids in a list
@@ -69,8 +69,8 @@ class Paint:
         # Maps point index to position coordinates
         self.pointToPosCoords = {}
 
-        # Stores all polygons with vertices sorted
-        # {(p1,p2,...pn) : color1, (p1,p2,...pn) : color2, ...}
+        # Stores all polygons and their ids
+        # {id : [p1,p2,...pn], ...}
         self.polygons = {}
 
         self.polygonIds = {}
@@ -83,7 +83,8 @@ class Paint:
         # self.drawLine([(339, 62), (671, 373)])
 
         # self.drawLine([(100,200),(100,400)])
-        # self.drawLine([(100,200),(100,600)])
+        # self.drawLine([(100,400),(200,600)])
+        # self.drawLine([(200,600),(100,200)])
 
     # Return true if line segments AB and CD intersect.
     # This will be used in the findIntersects method
@@ -192,8 +193,25 @@ class Paint:
             id = self.canvas.create_line(line)
             self.lineIds.append(id)
 
-    # draw line onto canvas, update lists
+    # function to extend line by a factor of d. 
+    # this is useful for intersection detection
+    def extendLine(self, line, d):
+        p1, p2 = line[0], line[1]
+        mag = ((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2) ** (1/2) # magnitude
+        
+        # new coords
+        x1 = p1[0] - d * (p2[0]-p1[0]) / mag
+        y1 = p1[1] - d * (p2[1]-p1[1]) / mag
+        x2 = p2[0] + d * (p2[0]-p1[0]) / mag
+        y2 = p2[1] + d * (p2[1]-p1[1]) / mag
+        
+        return [(x1, y1), (x2, y2)]
+
+    # draw line onto canvas, update data
     def drawLine(self, line):
+        # increase line length slightly
+        line = self.extendLine(line, 1.001)
+
         # sort line endpoints
         # if line is already in list, don't do anything
         line = sorted(line)
@@ -242,9 +260,17 @@ class Paint:
         if self.draw:
             self.drawLine([(self.x, self.y), (event.x, event.y)])
             self.draw = False
+            self.x, self.y = None, None
         else:
             self.x, self.y = event.x, event.y
             self.draw = True
+
+    # callback for mouse move
+    def onMouseMove(self, event):
+        # draw guideline
+        self.canvas.delete(self.guideLine)
+        if self.x is not None and self.y is not None:
+            self.guideLine = self.canvas.create_line((self.x, self.y, event.x, event.y))
 
 def main():
     root = Tk()
