@@ -1,10 +1,12 @@
 from tkinter import *
-from random import choice
 from graph import Graph
 import functools
 import time
+import random
 
-DEMO = 0
+# set to 1 to see edge and point labels
+DEMO = 0 
+
 WIDTH, HEIGHT = 1500, 800
 
 ## DEBUG FUNCTIONS
@@ -16,7 +18,8 @@ def timer(func):
         value = func(*args, **kwargs)
         toc = time.perf_counter()
         elapsed_time = toc - tic
-        # print(f"{func.__name__}: {elapsed_time:0.4f} seconds")
+        if DEMO:
+            print(f"{func.__name__}: {elapsed_time:0.4f} seconds")
         return value
     return wrapper_timer
 
@@ -24,13 +27,10 @@ def printDict(di):
     for k, v in di.items():
         print(k, ':', v)
 
-# generates a random hex color code
+# generates a random color
 def generateColor():
-    chars = "ABCDEF0123456789"
-    color = "#"
-    for _ in range(6):
-        color += choice(chars)
-    return color
+    rand = lambda: random.randint(50, 200)
+    return '#%02X%02X%02X' % (rand(), rand(), rand())
 
 class Point:
     def __init__(self, coord, ind):
@@ -40,30 +40,38 @@ class Point:
 class Paint:
     def __init__(self, root):
         self.canvas = Canvas(root, width=WIDTH, height=HEIGHT)
+        self.canvas.pack()
+
+        # variables needed for drawing
         self.x, self.y = None, None
         self.draw = False
         self.guideLine = None
-        self.canvas.bind("<ButtonPress-1>", self.onButtonDown)
+
+        # event listeners for drawing
+        self.canvas.bind("<ButtonPress-1>", self.onLeftButton)
+        self.canvas.bind("<ButtonPress-2>", self.onRightButton)
         self.canvas.bind("<Motion>", self.onMouseMove)
+        
+        # Below, we store all necessary data
+        self.currLineIndex = 0 # increment after every line drawn
+        self.currPointIndex = 0 # increment after every point of intersection is found
 
-        self.currLineNum = 0 # increment after every line drawn
-        self.currPointNum = 0 # increment after every point of intersection is found
-
-        # Stores all lines and the lines they intersect with
-        # {lineIndex : [(x0, y0), (x1, y1)], ...}
+        # Stores all lines and the lines they intersect with by their index
+        # {line0 : [(line1, line2), (line3, line4)... ], ...}
         self.lines = {}
 
-        # Store all line ids in a list
+        # Store all line ids in a list. When we need to remove lines, this is useful.
         self.lineIds = []
         
-        # Stores all vertices and edges in a dict
+        # An adjacency list to store all vertices and edges of our directed graph
         self.graph = {}
 
         # Stores all points of intersection
-        # {l0 : [l1, l2, ... ]}
+        # {line0 : [P1, P2, ... ]} where P1, P2, etc. are Point objects defined in the Point class
         self.intersects = {}
 
         # Maps line intersect coords to pos coords
+        # {(lineIndex0, lineIndex1) : (x, y)}
         self.lineToPosCoords = {}
 
         # Maps point index to position coordinates
@@ -74,8 +82,6 @@ class Paint:
         self.polygons = {}
 
         self.polygonIds = {}
-
-        self.canvas.pack()
 
         # self.drawLine([(225, 152), (529, 483)])
         # self.drawLine([(360, 460), (718, 41)])
@@ -124,18 +130,18 @@ class Paint:
                 continue
             p = getIntersect(line, l2)
             if p is not None: # if line and l2 intersecting
-                self.lineToPosCoords[(lineNum, self.currLineNum)] = p
-                self.pointToPosCoords[self.currPointNum] = p
+                self.lineToPosCoords[(lineNum, self.currLineIndex)] = p
+                self.pointToPosCoords[self.currPointIndex] = p
 
                 # update self.intersects dict
-                self.intersects.setdefault(lineNum, []).append(Point(p, self.currPointNum))
-                self.intersects.setdefault(self.currLineNum, []).append(Point(p, self.currPointNum))
+                self.intersects.setdefault(lineNum, []).append(Point(p, self.currPointIndex))
+                self.intersects.setdefault(self.currLineIndex, []).append(Point(p, self.currPointIndex))
                 
                 # sort lists in self.intersects
                 self.intersects[lineNum] = sorted(self.intersects[lineNum], key=lambda x : x.coord)
-                self.intersects[self.currLineNum] = sorted(self.intersects[self.currLineNum], key=lambda x : x.coord)
+                self.intersects[self.currLineIndex] = sorted(self.intersects[self.currLineIndex], key=lambda x : x.coord)
 
-                self.currPointNum += 1
+                self.currPointIndex += 1
 
     # Function to update self.graph after new shapes are drawn onto canvas
     @timer
@@ -170,15 +176,27 @@ class Paint:
         g = Graph(self.graph)
         regions = g.solve() # list of sublists containing point indices (0 - n)
         
-        # fill each new polygon with random color
+        # for each polygon
         for r in regions:
-            polygon = [self.pointToPosCoords[p] for p in r]
+            # convert point index to position coords
+            polygon = [self.pointToPosCoords[p] for p in r] 
+
+            # reorder polygon vertices while preserving edge relationships
+            # we want the top-left-most vertex as the first item
+            forwardList = polygon + polygon
+            left = forwardList.index(min(polygon))
+            if forwardList[left][0] > forwardList[left + 1][0]:
+                forwardList.reverse() 
+                left = forwardList.index(min(polygon))
+            polygon = forwardList[left:left+len(polygon)]
+
+            # if polygon is new
             if polygon not in self.polygons.values():
                 color = generateColor()
-                id = self.canvas.create_polygon(polygon, fill=color, outline=color)
+                id = self.canvas.create_polygon(polygon, fill=color, outline="black", width=0.5)
                 self.polygons[id] = polygon # add new polygon to list
 
-    # remove all current lines, and draw new lines
+    # redraw all lines
     def drawLines(self):
         # remove all current lines
         for id in self.lineIds:
@@ -188,9 +206,7 @@ class Paint:
         
         # draw all lines
         for line in self.lines.values():
-            id = self.canvas.create_line(line)
-            self.lineIds.append(id)
-            id = self.canvas.create_line(line)
+            id = self.canvas.create_line(line, width=0.5)
             self.lineIds.append(id)
 
     # function to extend line by a factor of d. 
@@ -210,7 +226,7 @@ class Paint:
     # draw line onto canvas, update data
     def drawLine(self, line):
         # increase line length slightly
-        line = self.extendLine(line, 1.001)
+        line = self.extendLine(line, 3)
 
         # sort line endpoints
         # if line is already in list, don't do anything
@@ -226,10 +242,10 @@ class Paint:
         self.updateEdges()
 
         # add new line to lines dict
-        self.lines[self.currLineNum] = line
+        self.lines[self.currLineIndex] = line
 
         # increment current line number
-        self.currLineNum += 1
+        self.currLineIndex += 1
 
         # find all polygons and fill them
         self.findNewPolygons()
@@ -243,20 +259,29 @@ class Paint:
 
     @timer
     def drawDemoMarks(self):
+        # draw polygon outlines
+        for polygon in self.polygons.values():
+            self.drawDot(polygon[0])
+            for i in range(1, len(polygon)):
+                self.canvas.create_line((polygon[i-1], polygon[i]), width=2, fill="blue", arrow='last')
+                if i != len(polygon) - 1: continue
+                self.canvas.create_line((polygon[i], polygon[0]), width=2, fill="blue", arrow='last')
+
         # draw edges
-        for u in self.graph:
-            for v in self.graph[u]:
-                # if (u not in self.toExclude) and (v not in self.toExclude):
-                self.canvas.create_line((*u.coord, *v.coord), width=1.5, fill="blue", arrow='last')
-        # draw points
-        for point in self.lineToPosCoords.values():
-            self.drawDot(point)
+        # for u in self.graph:
+        #     for v in self.graph[u]:
+        #         self.canvas.create_line((*u.coord, *v.coord), width=1.5, fill="blue", arrow='last')
+
         # draw point numbers
         for point, coord in self.pointToPosCoords.items():
             self.canvas.create_text(coord[0], coord[1] + 14, text=f"{point}")
 
-    # callback for button down
-    def onButtonDown(self, event):
+        # draw points
+        for point in self.lineToPosCoords.values():
+            self.drawDot(point)
+
+    # callback for left click
+    def onLeftButton(self, event):
         if self.draw:
             self.drawLine([(self.x, self.y), (event.x, event.y)])
             self.draw = False
@@ -265,16 +290,24 @@ class Paint:
             self.x, self.y = event.x, event.y
             self.draw = True
 
+    # callback for right click
+    def onRightButton(self, event):
+        if self.draw:
+            self.canvas.delete(self.guideLine)
+            self.draw = False
+            self.x, self.y = None, None
+
     # callback for mouse move
     def onMouseMove(self, event):
-        # draw guideline
+        # redraw guideline
         self.canvas.delete(self.guideLine)
         if self.x is not None and self.y is not None:
-            self.guideLine = self.canvas.create_line((self.x, self.y, event.x, event.y))
+            self.guideLine = self.canvas.create_line((self.x, self.y, event.x, event.y), fill="red")
 
 def main():
     root = Tk()
     root.title("Paint Program with Polygon Detection")
+    root.resizable(False, False)
     paint = Paint(root)
     root.mainloop()
 
