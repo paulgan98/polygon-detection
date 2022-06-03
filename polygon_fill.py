@@ -5,9 +5,11 @@ import time
 import random
 
 # set to 1 to see edge and point labels
-DEMO = 0 
+# self.demo = 0
 
-WIDTH, HEIGHT = 1500, 800
+TIME = 0
+
+WIDTH, HEIGHT = 1300, 700
 
 ## DEBUG FUNCTIONS
 # function to determine execution time of func
@@ -18,7 +20,7 @@ def timer(func):
         value = func(*args, **kwargs)
         toc = time.perf_counter()
         elapsed_time = toc - tic
-        if DEMO:
+        if TIME:
             print(f"{func.__name__}: {elapsed_time:0.4f} seconds")
         return value
     return wrapper_timer
@@ -47,10 +49,15 @@ class Paint:
         self.draw = False
         self.guideLine = None
 
+        # store all demo label ids
+        self.demoLabels = []
+        self.demo = 0
+
         # event listeners for drawing
-        self.canvas.bind("<ButtonPress-1>", self.onLeftButton)
-        self.canvas.bind("<ButtonPress-2>", self.onRightButton)
-        self.canvas.bind("<Motion>", self.onMouseMove)
+        # self.canvas.bind("<ButtonPress-1>", self.onLeftButton)
+        # self.canvas.bind("<ButtonPress-2>", self.onRightButton)
+        # self.canvas.bind("<Motion>", self.onMouseMove)
+        # self.canvas.bind("<space>", self.toggleDemo)
         
         # Below, we store all necessary data
         self.currLineIndex = 0 # increment after every line drawn
@@ -77,11 +84,12 @@ class Paint:
         # Maps point index to position coordinates
         self.pointToPosCoords = {}
 
-        # Stores all polygons and their ids
-        # {id : [p1,p2,...pn], ...}
-        self.polygons = {}
+        # Maps point position coordinates to indices
+        self.posCoordsToPoints = {}
 
-        self.polygonIds = {}
+        # Stores all polygons and their ids
+        # {[p1,p2,...pn] : id, ...}
+        self.polygons = {}
 
         # self.drawLine([(225, 152), (529, 483)])
         # self.drawLine([(360, 460), (718, 41)])
@@ -121,7 +129,6 @@ class Paint:
             d = (det(*line1), det(*line2))
             x = det(d, xdiff) / div
             y = det(d, ydiff) / div
-            # return (round(x), round(y))
             return (x, y)
 
         # loop through all stored lines, check intersect between line and each line l2 in list
@@ -132,6 +139,7 @@ class Paint:
             if p is not None: # if line and l2 intersecting
                 self.lineToPosCoords[(lineNum, self.currLineIndex)] = p
                 self.pointToPosCoords[self.currPointIndex] = p
+                self.posCoordsToPoints[p] = self.currPointIndex
 
                 # update self.intersects dict
                 self.intersects.setdefault(lineNum, []).append(Point(p, self.currPointIndex))
@@ -164,11 +172,17 @@ class Paint:
     # draws a red dot at specified point
     def drawDot(self, point):
         r = 6
-        self.canvas.create_oval(point[0]-r//2, point[1]-r//2, point[0]+r//2, point[1]+r//2,
+        id = self.canvas.create_oval(point[0]-r//2, point[1]-r//2, point[0]+r//2, point[1]+r//2,
                                 fill="#FF0000", outline="#FF0000")
+        return id
 
     # function to find all new polygons since last shape drawn
     def findNewPolygons(self):
+        def printPolygon(p):
+            for point in p:
+                print(self.posCoordsToPoints[point], end=' ')
+            print()
+
         # if graph contains only 1 undirected edge, there are no polygons
         if len(self.graph) <= 2:
             return None
@@ -176,6 +190,8 @@ class Paint:
         g = Graph(self.graph)
         regions = g.solve() # list of sublists containing point indices (0 - n)
         
+        polygons = set()
+
         # for each polygon
         for r in regions:
             # convert point index to position coords
@@ -184,17 +200,28 @@ class Paint:
             # reorder polygon vertices while preserving edge relationships
             # we want the top-left-most vertex as the first item
             forwardList = polygon + polygon
-            left = forwardList.index(min(polygon))
+            left = forwardList.index(min(polygon, key=lambda x: x))
             if forwardList[left][0] > forwardList[left + 1][0]:
                 forwardList.reverse() 
-                left = forwardList.index(min(polygon))
+                left = forwardList.index(min(polygon, key=lambda x: x))
             polygon = forwardList[left:left+len(polygon)]
+            polygons.add(tuple(polygon))
 
-            # if polygon is new
-            if polygon not in self.polygons.values():
-                color = generateColor()
-                id = self.canvas.create_polygon(polygon, fill=color, outline="black", width=0.5)
-                self.polygons[id] = polygon # add new polygon to list
+        newPolygons = polygons - set(self.polygons.keys())
+        expiredPolygons = set(self.polygons.keys()) - polygons # polygons that have been split into smaller ones
+
+        # # remove all expired polygons
+        for polygon in expiredPolygons:
+            self.canvas.delete(self.polygons[polygon]) # remove from canvas
+            del self.polygons[polygon] # remove from dictionary
+
+        # if polygon is new
+        for polygon in newPolygons:
+            for curr in self.polygons.keys():
+                if set(curr) == set(polygon): continue
+            color = generateColor()
+            id = self.canvas.create_polygon(polygon, fill=color, outline="black", width=0.5)
+            self.polygons[polygon] = id # add new polygon to list
 
     # redraw all lines
     def drawLines(self):
@@ -253,32 +280,43 @@ class Paint:
         # draw all lines onto canvas
         self.drawLines()
 
-        # draw demo labels
-        if DEMO:
-            self.drawDemoMarks()
+        if self.demo:
+            self.drawDemoLabels()
+
+        print(len(self.polygons), "polygon(s) found")
 
     @timer
-    def drawDemoMarks(self):
+    def drawDemoLabels(self):
+        for id in self.demoLabels:
+            self.canvas.delete(id)
+        self.demoLabels = []
+
         # draw polygon outlines
-        for polygon in self.polygons.values():
-            self.drawDot(polygon[0])
-            for i in range(1, len(polygon)):
-                self.canvas.create_line((polygon[i-1], polygon[i]), width=2, fill="blue", arrow='last')
-                if i != len(polygon) - 1: continue
-                self.canvas.create_line((polygon[i], polygon[0]), width=2, fill="blue", arrow='last')
+        # for polygon in self.polygons.keys():
+        #     id = self.drawDot(polygon[0])
+        #     self.demoLabels.append(id)
+        #     for i in range(1, len(polygon)):
+        #         id = self.canvas.create_line((polygon[i-1], polygon[i]), width=2, fill="blue", arrow='last')
+        #         self.demoLabels.append(id)
+        #         if i != len(polygon) - 1: continue
+        #         id = self.canvas.create_line((polygon[i], polygon[0]), width=2, fill="blue", arrow='last')
+        #         self.demoLabels.append(id)
 
         # draw edges
-        # for u in self.graph:
-        #     for v in self.graph[u]:
-        #         self.canvas.create_line((*u.coord, *v.coord), width=1.5, fill="blue", arrow='last')
+        for u in self.graph:
+            for v in self.graph[u]:
+                id = self.canvas.create_line((*u.coord, *v.coord), width=2, fill="blue", arrow='last')
+                self.demoLabels.append(id)
 
         # draw point numbers
         for point, coord in self.pointToPosCoords.items():
-            self.canvas.create_text(coord[0], coord[1] + 14, text=f"{point}")
+            id = self.canvas.create_text(coord[0], coord[1] + 14, text=f"{point}")
+            self.demoLabels.append(id)
 
         # draw points
         for point in self.lineToPosCoords.values():
-            self.drawDot(point)
+            id = self.drawDot(point)
+            self.demoLabels.append(id)
 
     # callback for left click
     def onLeftButton(self, event):
@@ -304,11 +342,27 @@ class Paint:
         if self.x is not None and self.y is not None:
             self.guideLine = self.canvas.create_line((self.x, self.y, event.x, event.y), fill="red")
 
+    def toggleDemo(self, event):
+        if not self.demo:
+            self.drawDemoLabels()
+            self.demo = 1
+        else:
+            for id in self.demoLabels:
+                self.canvas.delete(id)
+            self.demoLabels = []
+            self.demo = 0
+
 def main():
     root = Tk()
     root.title("Paint Program with Polygon Detection")
     root.resizable(False, False)
     paint = Paint(root)
+
+    root.bind("<ButtonPress-1>", paint.onLeftButton)
+    root.bind("<ButtonPress-2>", paint.onRightButton)
+    root.bind("<Motion>", paint.onMouseMove)
+    root.bind("<space>", paint.toggleDemo)
+
     root.mainloop()
 
 if __name__ == "__main__":
