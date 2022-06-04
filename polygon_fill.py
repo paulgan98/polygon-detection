@@ -51,7 +51,10 @@ class Paint:
 
         # store all demo label ids
         self.demoLabels = []
+
+        # toggle variables
         self.demo = 0
+        self.showLines = 1
 
         # event listeners for drawing
         # self.canvas.bind("<ButtonPress-1>", self.onLeftButton)
@@ -220,7 +223,7 @@ class Paint:
             for curr in self.polygons.keys():
                 if set(curr) == set(polygon): continue
             color = generateColor()
-            id = self.canvas.create_polygon(polygon, fill=color, outline="black", width=0.5)
+            id = self.canvas.create_polygon(polygon, fill=color, outline=color, width=0.5)
             self.polygons[polygon] = id # add new polygon to list
 
     # redraw all lines
@@ -278,7 +281,7 @@ class Paint:
         self.findNewPolygons()
 
         # draw all lines onto canvas
-        self.drawLines()
+        if self.showLines: self.drawLines()
 
         if self.demo:
             self.drawDemoLabels()
@@ -342,6 +345,16 @@ class Paint:
         if self.x is not None and self.y is not None:
             self.guideLine = self.canvas.create_line((self.x, self.y, event.x, event.y), fill="red")
 
+    def toggleLines(self, event):
+        if not self.showLines:
+            self.drawLines()
+            self.showLines = 1
+        else:
+            # remove all current lines
+            for id in self.lineIds:
+                self.canvas.delete(id)
+            self.showLines = 0
+
     def toggleDemo(self, event):
         if not self.demo:
             self.drawDemoLabels()
@@ -353,6 +366,11 @@ class Paint:
             self.demo = 0
 
 def main():
+    print("(l) toggle lines")
+    print("(spacebar) toggle labels")
+    print("left mouse button to draw")
+    print("right mouse button to cancel draw")
+    
     root = Tk()
     root.title("Paint Program with Polygon Detection")
     root.resizable(False, False)
@@ -362,6 +380,7 @@ def main():
     root.bind("<ButtonPress-2>", paint.onRightButton)
     root.bind("<Motion>", paint.onMouseMove)
     root.bind("<space>", paint.toggleDemo)
+    root.bind("l", paint.toggleLines)
 
     root.mainloop()
 
