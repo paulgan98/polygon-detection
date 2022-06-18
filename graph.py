@@ -1,6 +1,6 @@
 from math import atan2, pi
 
-# Based on an algorithm developed by Fan and Chang (1991)
+# Based on an algorithm developed by X.Y. Jiang and H. Bunke (1993) in An Optimal Algorithm for Extracting the Regions of a Plane Graph
 # Implemented by Paul Gan
 
 class Graph:
@@ -128,12 +128,12 @@ class Graph:
                 wedgeList.append(ind0)
         
         # remove exterior face from our regions. (remove the longest list)
-        toRemove, longest = None, 0
-        for r in self.regions:
-            if len(r) > longest:
-                longest = len(r)
-                toRemove = r
-        self.regions.remove(toRemove)
+        # toRemove, longest = None, 0
+        # for r in self.regions:
+        #     if len(r) > longest:
+        #         longest = len(r)
+        #         toRemove = r
+        # self.regions.remove(toRemove)
 
     # this function sequentially calls all functions in our pipeline
     def solve(self):
